@@ -40,7 +40,7 @@ func NewUserDao(dao *Dao) *UserDao {
 // CreateDocDemo
 func (d *UserDao) CreateDocDemo() error {
 	var err error
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 9; i++ {
 		user := model.User{
 			Id:       bson.NewObjectId(),
 			Account:  fmt.Sprintf("mongo_%d", i),
@@ -83,6 +83,7 @@ func (d *UserDao) UpsertDocDemo() error {
 			District: "gs",
 			Remark:   "Earth",
 		},
+		Comments: []model.Comment{},
 		ModifyAt: Now(),
 		IsDelete: false,
 		DeleteAt: "",
@@ -185,7 +186,7 @@ func (d *UserDao) UpdateArrDemo() error {
 	// 添加多个元素
 	update = bson.M{"$push": bson.M{"friends": bson.M{
 		"$each":  []string{"You", "A", "B", "C", "D", "E", "F", "G"}, // 注：这个地方会插入重复数据：You
-		"$slice": -5,                                                 // 限定数组长度，且不超过10，超过则保留最后10个
+		"$slice": -5,                                                 // 限定数组长度;且不超过10;超过则保留最后10个
 	}}}
 	err = d.dao.UpdateDoc(d.ColName, selector, update)
 	if err != nil {
@@ -225,22 +226,169 @@ func (d *UserDao) UpdateArrDemo() error {
 	return nil
 }
 
+// UpdateEmbedArrDocDemo: 更新内嵌数组文档
+// Operators:
+func (d *UserDao) UpdateEmbedArrDocDemo() error {
+	selector := bson.M{"account": "mongo_a"}
+	user, err := d.dao.FindOne(d.ColName, selector)
+	if err != nil {
+		return err
+	}
+	result := user.(bson.M)
+
+	userRef := mgo.DBRef{
+		Collection: d.ColName,
+		Id:         result["_id"].(bson.ObjectId),
+		Database:   d.dao.Name,
+	}
+
+	comments := model.Comment{
+		Id:       bson.NewObjectId(),
+		Content:  "Hi, What's computer?",
+		UserRef:  userRef,
+		CreateAt: Now(),
+		ModifyAt: Now(),
+		IsDelete: false,
+		DeleteAt: "",
+	}
+	err = d.dao.UpdateDoc(d.ColName, selector, bson.M{"$push": bson.M{"comments": comments}})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // 查询文档
-func FindDocDemo() error {
+func (d *UserDao) FindDocDemo() error {
+	page := Page{}
+	page.checkValid("0", "5")
+	sortKeys := []string{"-age"}
+
+	var err error
+	var results []interface{}
+
+	// 按嵌入文档字段查询
+	condition := bson.M{"address.province": "js"}
+	results, err = d.dao.FindDoc(d.ColName, condition, page, sortKeys...)
+	if err != nil {
+		return err
+	}
+	if err = BsonMapToJson(results...); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-// 查询数组
-func FindArrDemo() error {
+// 查询文档：指定需要的字段
+func (d *UserDao) FindWithSelectDemo() error {
+	session := d.dao.sessionCopy()
+	defer session.Close()
+	co := d.dao.getCollection(d.ColName, session)
+
+	var q *mgo.Query
+	query := bson.M{"age": 2}
+	q = co.Find(query)
+
+	var results []interface{}
+
+	// 返回所有字段
+	selector := bson.M{}
+	err := q.Select(selector).All(&results)
+	if err != nil {
+		return err
+	}
+	BsonMapToJson(results...)
+
+	// 只返回指定值为1的字段
+	selector = bson.M{"name": 1, "age": 1}
+	err = q.Select(selector).All(&results)
+	if err != nil {
+		return err
+	}
+	BsonMapToJson(results...)
+
+	// 指定为 0 的字段都不返回;其余都返回
+	selector = bson.M{"name": 0, "age": 0}
+	err = q.Select(selector).All(&results)
+	if err != nil {
+		return err
+	}
+	BsonMapToJson(results...)
+
+	// {"name": 1, "age": 0} 是互斥操作
+	// output err: Projection cannot have a mix of inclusion and exclusion.
+	selector = bson.M{"name": 1, "age": 0}
+	return q.Select(selector).All(&results)
+}
+
+// 查询&修改数组、内嵌数组文档
+// Operators: $all
+func (d *UserDao) FindEmbedArrDemo() error {
+	page := Page{}
+	page.checkValid("0", "2")
+
+	// 查询数组中包含所有制定元素的文档
+	query := bson.M{"friends": bson.M{"$all": []string{"KD", "YM"}}}
+	results, err := d.dao.FindDoc(d.ColName, query, page)
+	if err != nil {
+		return err
+	}
+	BsonMapToJson(results...)
+
+	// 更新内嵌数组文档
+	selector := bson.M{
+		"account":  "mongo_a",
+		"comments": bson.M{"$elemMatch": bson.M{"content": "This is a comment"}},
+	}
+	update := bson.M{"$set": bson.M{ // $ 操作符最后会取代满足 selector 条件的第一个数据元素对应的 index
+		"comments.$.email":     "303xx680@qq.com",
+		"comments.$.stars":     6,
+		"comments.$.modify_at": Now(),
+		"modify_at":            Now(),
+	}}
+	err = d.dao.UpdateDoc(d.ColName, selector, update)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-// 模糊查询
-func FuzzySearch() error {
+// 模糊查询: 关键字查询
+// 只匹配可能满足正则规则的某(几)个字段;并不是进行全文匹配
+func (d *UserDao) FuzzySearch(keys ...string) error {
+	condition := bson.M{}
+	ms := MatchKeys(keys...)
+	if len(ms) == 0 {
+		ms = append(ms, bson.M{"_id": ""})
+	} else {
+		condition = bson.M{"$or": ms}
+	}
+
+	results, err := d.dao.FindDoc(d.ColName, condition, Page{})
+	if err != nil {
+		return err
+	}
+	BsonMapToJson(results...)
+
 	return nil
 }
 
 // 聚合查询
-func PipeSearchDemo() error {
+func (d *UserDao) PipeSearchDemo() error {
+	pipes := []bson.M{
+		{"$match": bson.M{}},
+		{"$project": bson.M{}},
+		{"$group": bson.M{}},
+		{"$unwind": bson.M{}},
+		{"$group": bson.M{}},
+	}
+
+	results, err := d.dao.PipeDoc(d.ColName, pipes)
+	if err != nil {
+		return err
+	}
+	BsonMapToJson(results...)
+
 	return nil
 }

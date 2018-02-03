@@ -13,13 +13,14 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"regexp"
 	"time"
 
 	"gopkg.in/mgo.v2/bson"
 )
 
 // 自定义新类型 addrs 来重新实现flag.Value接口
-// 使得通过一个命令行参数可以指定多个值，然后解析到slice中
+// 使得通过一个命令行参数可以指定多个值;然后解析到slice中
 type addrs []string
 
 // 实现 String 方法
@@ -126,6 +127,8 @@ func StructToBsonMap(src interface{}, dst *bson.M) error {
 
 // bson.M to json
 func BsonMapToJson(src ...interface{}) error {
+	fmt.Printf("total: %v\n", len(src))
+
 	var err error
 	var data []byte
 	for _, v := range src {
@@ -149,4 +152,47 @@ func OutputJson(data []byte) error {
 	fmt.Println()
 
 	return nil
+}
+
+const (
+	RegexEmail            = `^\w+([-+.]\w+)*@\w+([-.]\w+)*\.\w+([-.]\w+)*$`                        // 邮箱
+	RegexMobile           = `^(13[0-9]|14[5|7]|15[0|1|2|3|5|6|7|8|9]|18[0|1|2|3|5|6|7|8|9])\d{8}$` // 手机号
+	RegexAnyNum           = "^[0-9]*$"                                                             // 数字
+	RegexChinese          = "[\u4e00-\u9fa5]"                                                      // 汉字
+	RegexAlphabet         = `^[A-Za-z]+$`                                                          // 26个英文字母
+	RegexNumAlphabet      = `^[A-Za-z0-9]+$`                                                       // 数字+英文字母
+	RegexSpecialAlpha     = `[^%&=?$\x22]+`                                                        // 允许这些特殊字符
+	RegexMobile3Prefix    = `^(13[0-9]|14[5|7]|15[0|1|2|3|5|6|7|8|9]|18[0|1|2|3|5|6|7|8|9])\d{0}$` // 手机号前三位
+	RegexCnEnNumUnderline = `^[\u4E00-\u9FA5A-Za-z0-9_]+$`                                         // 中+英+数+_
+)
+
+// 字段匹配
+func MatchKeys(keys ...string) []bson.M {
+	var ms []bson.M
+	for _, key := range keys {
+		ok1, _ := regexp.MatchString(RegexAlphabet, key)
+		ok2, _ := regexp.MatchString(RegexNumAlphabet, key)
+		ok3, _ := regexp.MatchString(RegexChinese, key)
+		ok4, _ := regexp.MatchString(RegexCnEnNumUnderline, key)
+		ok5, _ := regexp.MatchString(RegexAnyNum, key)
+		ok6, _ := regexp.MatchString(RegexSpecialAlpha, key)
+		ok7, _ := regexp.MatchString(RegexEmail, key)
+		ok8, _ := regexp.MatchString(RegexMobile, key)
+		ok9, _ := regexp.MatchString(RegexMobile3Prefix, key)
+
+		if ok1 || ok2 || ok3 || ok4 || ok5 || ok6 {
+			ms = append(ms, bson.M{"name": bsonRegex(key)}) // 姓名
+			ms = append(ms, bson.M{"friends": bson.M{"$all": []string{key}}})
+		}
+
+		if ok1 || ok2 || ok7 || ok8 || ok9 {
+			ms = append(ms, bson.M{"email": bsonRegex(key)}) // 邮箱
+		}
+	}
+	return ms
+}
+
+// bson regex
+func bsonRegex(key string) bson.M {
+	return bson.M{"$regex": bson.RegEx{Pattern: key, Options: "i"}}
 }

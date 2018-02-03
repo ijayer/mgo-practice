@@ -41,7 +41,7 @@ func (d *Dao) sessionCopy() *mgo.Session {
 }
 
 // 获取mgo.Database对象
-func (d *Dao) getDB() *mgo.Database {
+func (d *Dao) getDB(session *mgo.Session) *mgo.Database {
 	return d.Session.DB(d.Name)
 }
 
@@ -51,11 +51,11 @@ func (d *Dao) DropDB() error {
 }
 
 // 获取mgo.Collection对象
-func (d *Dao) getCollection(name string) *mgo.Collection {
+func (d *Dao) getCollection(name string, session *mgo.Session) *mgo.Collection {
 	if name == "" {
 		name = fmt.Sprint("mongos")
 	}
-	return d.Session.DB(d.Name).C(name)
+	return d.getDB(session).C(name)
 }
 
 var (
@@ -218,7 +218,29 @@ func (p *Page) checkValid(offset, limit string) {
 	p.Valid = true
 }
 
-// 查找文档：query指定查询条件，page指定分页参数，sortKeys指定排序字段
+// 查询文档：query查询条件；page分页条件；sortKeys排序字段。该方法将返回按条件过滤后的 *mgo.Query 结构
+func (d *Dao) Find(collection string, query interface{}, page Page, sortKeys ...string) (*mgo.Query, error) {
+	session := d.sessionCopy()
+	defer session.Close()
+	co := session.DB(d.Name).C(collection)
+
+	if query == nil {
+		return nil, errNull
+	}
+	q := co.Find(query)
+
+	if len(sortKeys) == 0 {
+		sortKeys = append(sortKeys, "-create_at")
+	}
+	q = q.Sort(sortKeys...)
+
+	if page.Valid {
+		q = q.Skip(page.Offset).Limit(page.Limit)
+	}
+	return q, nil
+}
+
+// 查找文档：query指定查询条件; selector 指定需要返回的键; page指定分页参数; sortKeys指定排序字段
 func (d *Dao) FindDoc(collection string, query interface{}, page Page, sortKeys ...string) ([]interface{}, error) {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -244,7 +266,7 @@ func (d *Dao) FindDoc(collection string, query interface{}, page Page, sortKeys 
 	return results, err
 }
 
-// 查找某个文档：query指定查询条件(contains _id or an unique_main_key)，sortKeys指定排序字段
+// 查找某个文档：query指定查询条件(contains _id or an unique_main_key);sortKeys指定排序字段
 func (d *Dao) FindOne(collection string, query interface{}) (interface{}, error) {
 	session := d.sessionCopy()
 	defer session.Close()
