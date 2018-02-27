@@ -8,7 +8,7 @@
 package main
 
 import (
-	"log"
+	"fmt"
 
 	"mongodb.golang.com/src/dao"
 )
@@ -20,7 +20,7 @@ func main() {
 	d := dao.NewDao(session)
 	userDao := dao.NewUserDao(d)
 
-	if err := userDao.UpdateArrDemo(); err != nil {
-		log.Println(err)
+	if err := userDao.FuzzySearch("zhe1"); err != nil {
+		fmt.Println(err)
 	}
 }

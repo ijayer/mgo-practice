@@ -244,7 +244,7 @@ func (d *UserDao) UpdateEmbedArrDocDemo() error {
 
 	comments := model.Comment{
 		Id:       bson.NewObjectId(),
-		Content:  "Hi, What's computer?",
+		Content:  "Code compile",
 		UserRef:  userRef,
 		CreateAt: Now(),
 		ModifyAt: Now(),
@@ -328,7 +328,7 @@ func (d *UserDao) FindEmbedArrDemo() error {
 	page := Page{}
 	page.checkValid("0", "2")
 
-	// 查询数组中包含所有制定元素的文档
+	// 查询数组中包含所有指定元素的文档
 	query := bson.M{"friends": bson.M{"$all": []string{"KD", "YM"}}}
 	results, err := d.dao.FindDoc(d.ColName, query, page)
 	if err != nil {
@@ -356,14 +356,22 @@ func (d *UserDao) FindEmbedArrDemo() error {
 
 // 模糊查询: 关键字查询
 // 只匹配可能满足正则规则的某(几)个字段;并不是进行全文匹配
+// 函数调用实例：
+/*
+	if err := userDao.FuzzySearch("zhe1"); err != nil {
+		fmt.Println(err)
+	}
+*/
 func (d *UserDao) FuzzySearch(keys ...string) error {
 	condition := bson.M{}
 	ms := MatchKeys(keys...)
 	if len(ms) == 0 {
 		ms = append(ms, bson.M{"_id": ""})
 	} else {
-		condition = bson.M{"$or": ms}
+		condition["$or"] = ms
 	}
+
+	// c := bson.M{"$or": []bson.M{{"name": bson.RegEx{Pattern: fmt.Sprintf("zhe1")}}}}
 
 	results, err := d.dao.FindDoc(d.ColName, condition, Page{})
 	if err != nil {
@@ -377,18 +385,27 @@ func (d *UserDao) FuzzySearch(keys ...string) error {
 // 聚合查询
 func (d *UserDao) PipeSearchDemo() error {
 	pipes := []bson.M{
-		{"$match": bson.M{}},
-		{"$project": bson.M{}},
-		{"$group": bson.M{}},
-		{"$unwind": bson.M{}},
-		{"$group": bson.M{}},
+		{"$match": bson.M{"age": bson.M{"$gt": 0, "$lt": 8}}},
+		{"$group": bson.M{"_id": "$name", "total": bson.M{"$sum": 1}}},
 	}
-
 	results, err := d.dao.PipeDoc(d.ColName, pipes)
 	if err != nil {
 		return err
 	}
 	BsonMapToJson(results...)
 
+	return nil
+}
+
+func (d *UserDao) TestDemo() error {
+	selector := bson.M{"account": "mongo_a"}
+	update := bson.M{"$addToSet": bson.M{"friends": "A"}}
+
+	d.dao.Session.DB("").C("").Update(bson.M{}, bson.M{"$addToSet": bson.M{"friends": "A"}})
+
+	err := d.dao.UpdateDoc(d.ColName, selector, update)
+	if err != nil {
+		return err
+	}
 	return nil
 }

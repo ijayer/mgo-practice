@@ -182,7 +182,7 @@ func MatchKeys(keys ...string) []bson.M {
 
 		if ok1 || ok2 || ok3 || ok4 || ok5 || ok6 {
 			ms = append(ms, bson.M{"name": bsonRegex(key)}) // 姓名
-			ms = append(ms, bson.M{"friends": bson.M{"$all": []string{key}}})
+			ms = append(ms, bson.M{"friends": bson.M{"$in": []string{key}}})
 		}
 
 		if ok1 || ok2 || ok7 || ok8 || ok9 {
