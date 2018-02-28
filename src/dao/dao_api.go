@@ -67,7 +67,7 @@ var (
  * 封装 mgo 相关函数
  */
 
-// 插入文档
+// 插入文档: collection 集合名；docs 要插入的文档；idxKeys 索引字段
 func (d *Dao) CreateDoc(collection string, docs interface{}, idxKeys ...string) error {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -90,7 +90,7 @@ func (d *Dao) CreateDoc(collection string, docs interface{}, idxKeys ...string) 
 	return co.Insert(docs)
 }
 
-// 插入 & 更新文档
+// 插入 & 更新文档：collection 指定集合名；selector 选择条件；update 更新内容
 // Method1：调用 session.DB(name).C(collection).Upsert 方法
 // Method2：调用 session.DB(name).C(collection).Find(selector).Apply() 方法
 //          Apply()方法底层实际运行了`findAndModify`命令：
@@ -119,7 +119,7 @@ func (d *Dao) UpsertDoc(collection string, selector interface{}, update interfac
 	return nil, errUnSupportType
 }
 
-// 删除文档, i 存储 bson.ObjectId or bson.M 类型
+// 删除文档: collection 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型)
 func (d *Dao) RemoveDoc(collection string, selector interface{}) error {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -137,7 +137,7 @@ func (d *Dao) RemoveDoc(collection string, selector interface{}) error {
 	return errUnSupportType
 }
 
-// 软删除文档
+// 软删除文档: collection 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型)
 func (d *Dao) SoftRemoveDoc(collection string, selector interface{}) error {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -160,7 +160,7 @@ func (d *Dao) SoftRemoveDoc(collection string, selector interface{}) error {
 	return errUnSupportType
 }
 
-// 更新文档
+// 更新文档: collection 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型); update 更新内容
 func (d *Dao) UpdateDoc(collection string, selector interface{}, update bson.M) error {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -218,7 +218,7 @@ func (p *Page) checkValid(offset, limit string) {
 	p.Valid = true
 }
 
-// 查询文档：query查询条件；page分页条件；sortKeys排序字段。该方法将返回按条件过滤后的 *mgo.Query 结构
+// 查询文档：collection集合名称; query查询条件；page分页条件；sortKeys排序字段。该方法将返回按条件过滤后的 *mgo.Query 结构
 func (d *Dao) Find(collection string, query interface{}, page Page, sortKeys ...string) (*mgo.Query, error) {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -240,7 +240,7 @@ func (d *Dao) Find(collection string, query interface{}, page Page, sortKeys ...
 	return q, nil
 }
 
-// 查找文档：query指定查询条件; selector 指定需要返回的键; page指定分页参数; sortKeys指定排序字段
+// 查找文档：collection集合名称; query查询条件; page指定分页参数; sortKeys指定排序字段
 func (d *Dao) FindDoc(collection string, query interface{}, page Page, sortKeys ...string) ([]interface{}, error) {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -266,7 +266,7 @@ func (d *Dao) FindDoc(collection string, query interface{}, page Page, sortKeys 
 	return results, err
 }
 
-// 查找某个文档：query指定查询条件(contains _id or an unique_main_key);sortKeys指定排序字段
+// 查找某个文档：collection集合名称; query指定查询条件(contains _id or an unique_main_key)
 func (d *Dao) FindOne(collection string, query interface{}) (interface{}, error) {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -297,7 +297,7 @@ func (d *Dao) FindOne(collection string, query interface{}) (interface{}, error)
 	return result, err
 }
 
-// 聚合管道: collection指定集合名称; pipes指定管道操作条件; page指定分页参数; addition指定额外条件
+// 聚合管道: collection集合名称; pipes指定管道操作条件
 func (d *Dao) PipeDoc(collection string, pipes []bson.M) ([]interface{}, error) {
 	session := d.sessionCopy()
 	defer session.Close()
@@ -310,27 +310,30 @@ func (d *Dao) PipeDoc(collection string, pipes []bson.M) ([]interface{}, error) 
 	return results, err
 }
 
-// 存储文件：GridFS
-func (d *Dao) CreateGridFs(name string, writer io.ReadWriter) (interface{}, error) {
+// 存储文件：GridFS. name 文件名; writer o.ReadWriter接口; 返回文档 Id 和 error
+func (d *Dao) CreateGridFs(name string, data []byte) (bson.ObjectId, error) {
 	session := d.sessionCopy()
 	defer session.Close()
 	gfs := session.DB(d.Name).GridFS(d.PrefixFS)
 
 	id := bson.NewObjectId()
-	f, err := gfs.Create(name)
+	fs, err := gfs.Create(name)
 	if err != nil {
 		return id, err
 	}
-	f.SetId(id)
+	fs.SetId(id)
 
-	_, err = io.Copy(f, writer)
+	_, err = fs.Write(data)
 	if err != nil {
 		return id, err
+	}
+	if err := fs.Close(); err != nil {
+		return "", err
 	}
 	return id, nil
 }
 
-// 查找文件
+// 查找文件: 文档id
 func (d *Dao) FindGridFs(id interface{}) ([]byte, error) {
 	session := d.sessionCopy()
 	defer session.Close()

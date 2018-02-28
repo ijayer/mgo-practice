@@ -9,6 +9,7 @@ package dao
 
 import (
 	"fmt"
+	"io/ioutil"
 	"reflect"
 	"strings"
 
@@ -395,6 +396,18 @@ func (d *UserDao) PipeSearchDemo() error {
 	BsonMapToJson(results...)
 
 	return nil
+}
+
+// 按GridFS规范存取文件
+func (d *UserDao) GridFsDemo() error {
+	id, err := d.dao.CreateGridFs("file.txt", []byte("你住的巷子里，我租了一间公寓"))
+	bt, err := d.dao.FindGridFs(id)
+	println(string(bt))
+
+	data, err := ioutil.ReadFile(`D:\setup\Caddy\caddy.exe`)
+	_, err = d.dao.CreateGridFs("caddy.exe", data)
+
+	return err
 }
 
 func (d *UserDao) TestDemo() error {
