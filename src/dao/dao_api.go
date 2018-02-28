@@ -12,9 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 
+	"github.com/gedex/inflector"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
@@ -354,6 +357,51 @@ func (d *Dao) FindGridFs(id interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// 解析 mgo.DBRef
+func DBRef(field string, t reflect.Type, m map[string]interface{}) error {
+	if value, hit := m[field]; hit {
+		refer, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid param given [%s]", field)
+		}
+		id, hit := refer["id"]
+		if !hit {
+			return fmt.Errorf("%s must be an object and contain a id field", field)
+		}
+		delete(m, field)
+
+		if reflect.TypeOf(id).Kind() != reflect.String || !bson.IsObjectIdHex(id.(string)) {
+			return fmt.Errorf("id format error [%v]", id)
+		}
+		m[field+"_ref"] = mgo.DBRef{
+			Id:         bson.ObjectIdHex(id.(string)),
+			Collection: strings.ToLower(inflector.Pluralize(t.Name())),
+		}
+	}
+	return nil
+}
+
+// 解析 mgo.DBRef.Id (mgo_key: $id)
+func DBRefId(field string, m map[string]interface{}) error {
+	if value, hit := m[field]; hit {
+		refer, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid param given [%s]", field)
+		}
+		id, hit := refer["id"]
+		if !hit {
+			return fmt.Errorf("%s must be an object and contain a id field", field)
+		}
+		delete(m, field)
+
+		if reflect.TypeOf(id).Kind() != reflect.String || !bson.IsObjectIdHex(id.(string)) {
+			return fmt.Errorf("id format error [%v]", id)
+		}
+		m[field+"_ref.$id"] = bson.ObjectIdHex(id.(string))
+	}
+	return nil
+}
+
 /*
  * 封装 mgo 操作符
  */
@@ -365,14 +413,4 @@ type Operator struct {
 func NewOperator(ops ...string) {
 	operators := sort.StringSlice{}
 	operators = append(operators, ops...)
-}
-
-// 解析 mgo.DBRef
-func (o *Operator) DBRef() {
-
-}
-
-// 解析 mgo.DBRef.Id (mgo_key: $id)
-func (o *Operator) DBRefId() {
-
 }

@@ -20,7 +20,7 @@ func main() {
 	d := dao.NewDao(session)
 	userDao := dao.NewUserDao(d)
 
-	if err := userDao.CreateGridFsDemo(); err != nil {
+	if err := userDao.TestDemo(); err != nil {
 		fmt.Println(err)
 	}
 }

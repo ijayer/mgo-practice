@@ -39,7 +39,7 @@ type Address struct {
 type Comment struct {
 	Id      bson.ObjectId `json:"id,omitempty" bson:"_id,omitempty"`
 	Content string        `json:"content"`
-	UserRef mgo.DBRef     `json:"user_ref" bson:"user_ref"`
+	UserRef mgo.DBRef     `json:"user_ref" bson:"user_ref,omitempty"`
 	// 数据库私有字段
 	CreateAt string `json:"create_at" bson:"create_at"`
 	ModifyAt string `json:"modify_at" bson:"modify_at"`
