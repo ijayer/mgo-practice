@@ -264,7 +264,7 @@ func (d *Dao) FindDoc(collection string, query interface{}, page Page, sortKeys 
 	if page.Valid {
 		q = q.Skip(page.Offset).Limit(page.Limit)
 	}
-	q.All(&results)
+	err = q.All(&results)
 
 	return results, err
 }

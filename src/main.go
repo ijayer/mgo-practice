@@ -20,7 +20,7 @@ func main() {
 	d := dao.NewDao(session)
 	userDao := dao.NewUserDao(d)
 
-	if err := userDao.TestDemo(); err != nil {
+	if err := userDao.TestMgoError(); err != nil {
 		fmt.Println(err)
 	}
 }

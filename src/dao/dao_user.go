@@ -410,15 +410,22 @@ func (d *UserDao) GridFsDemo() error {
 	return err
 }
 
-func (d *UserDao) TestDemo() error {
-	selector := bson.M{"account": "mongo_a"}
-	update := bson.M{"$addToSet": bson.M{"friends": "A"}}
+func (d *UserDao) TestMgoError() error {
+	result, err := d.dao.FindOne(d.ColName, bson.ObjectIdHex("5a73c9abc7f41c3744443339"))
+	fmt.Printf("errors: %v\n", err)     // not found
+	fmt.Printf("result: %+v\n", result) // nil
 
-	d.dao.Session.DB("").C("").Update(bson.M{}, bson.M{"$addToSet": bson.M{"friends": "A"}})
+	result, err = d.dao.FindOne(d.ColName, bson.M{"_id": bson.ObjectIdHex("5a73c9abc7f41c3744443339"), "name": "xx"})
+	fmt.Printf("errors: %v\n", err)     // not found
+	fmt.Printf("result: %+v\n", result) // nil
 
-	err := d.dao.UpdateDoc(d.ColName, selector, update)
-	if err != nil {
-		return err
-	}
+	result, err = d.dao.FindDoc(d.ColName, bson.M{"name": "xxx"}, Page{})
+	fmt.Printf("errors: %v\n", err)     // nil
+	fmt.Printf("result: %+v\n", result) // []
+
+	result, err = d.dao.FindDoc(d.ColName, bson.M{"_id": "5a73c9abc7f41c3744443339"}, Page{})
+	fmt.Printf("errors: %v\n", err)     // nil
+	fmt.Printf("result: %+v\n", result) // []
+
 	return nil
 }
