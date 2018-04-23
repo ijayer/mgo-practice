@@ -22,43 +22,43 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// Database Access Object
+// Dao Database Access Object
 type Dao struct {
 	Name     string       // 数据库名称
 	Session  *mgo.Session // 数据库连接池
 	PrefixFS string       // GridFS前缀
 }
 
-// 初始化Dao对象
+// NewDao 初始化Dao对象
 func NewDao(session *mgo.Session) *Dao {
 	return &Dao{
 		Session:  session,
-		Name:     DBConfig.DBName,
+		Name:     DBCfg.Name,
 		PrefixFS: fmt.Sprintf("fs"),
 	}
 }
 
-// 从源Session完成拷贝(该拷贝保留原有Session信息)
-func (d *Dao) sessionCopy() *mgo.Session {
+// SessionCopy 从源Session完成拷贝(该拷贝保留原有Session信息)
+func (d *Dao) SessionCopy() *mgo.Session {
 	return d.Session.Copy()
 }
 
-// 获取mgo.Database对象
-func (d *Dao) getDB(session *mgo.Session) *mgo.Database {
+// GetDB 获取mgo.Database对象
+func (d *Dao) GetDB(session *mgo.Session) *mgo.Database {
 	return d.Session.DB(d.Name)
 }
 
-// 删除数据库
+// DropDB 删除数据库
 func (d *Dao) DropDB() error {
 	return d.Session.DB(d.Name).DropDatabase()
 }
 
-// 获取mgo.Collection对象
-func (d *Dao) getCollection(name string, session *mgo.Session) *mgo.Collection {
+// GetCollection 获取mgo.Collection对象
+func (d *Dao) GetCollection(name string, session *mgo.Session) *mgo.Collection {
 	if name == "" {
 		name = fmt.Sprint("mongos")
 	}
-	return d.getDB(session).C(name)
+	return d.GetDB(session).C(name)
 }
 
 var (
@@ -70,21 +70,28 @@ var (
  * 封装 mgo 相关函数
  */
 
-// 插入文档: collection 集合名；docs 要插入的文档；idxKeys 索引字段
-func (d *Dao) CreateDoc(collection string, docs interface{}, idxKeys ...string) error {
-	session := d.sessionCopy()
+// ResultWithMap 数据库查询结果存入map[string]interface{}
+type ResultWithMap map[string]interface{}
+
+// CreateDoc 插入文档
+// name 集合名；docs 要插入的文档；keys 索引字段
+//
+// TODO: [20180423]数据库有关时间的字段应该存储为：时间戳，然后在代码中封装时间格式转换函数
+func (d *Dao) CreateDoc(collection string, docs interface{}, keys ...string) error {
+	session := d.SessionCopy()
 	defer session.Close()
 	co := session.DB(d.Name).C(collection)
 
-	if len(idxKeys) == 0 {
-		idxKeys = append(idxKeys, "-create_at")
+	if len(keys) == 0 {
+		keys = append(keys, "-create_at")
+		// Warn: "-create_at["2006-01-02 15:04:05"]" maybe caused duplicated index keys
 	}
 	index := mgo.Index{
-		Key:        idxKeys, // 索引键
-		Unique:     true,    // 创建唯一索引
-		DropDups:   true,    // 删除重复索引
-		Background: true,    // 在后台创建
-		Sparse:     true,    // 不存在字段不启用索引
+		Key:        keys, // 索引键
+		Unique:     true, // 创建唯一索引
+		DropDups:   true, // 删除重复索引
+		Background: true, // 在后台创建
+		Sparse:     true, // 不存在字段不启用索引
 	}
 	if err := co.EnsureIndex(index); err != nil {
 		return err
@@ -93,26 +100,39 @@ func (d *Dao) CreateDoc(collection string, docs interface{}, idxKeys ...string) 
 	return co.Insert(docs)
 }
 
-// 插入 & 更新文档：collection 指定集合名；selector 选择条件；update 更新内容
-// Method1：调用 session.DB(name).C(collection).Upsert 方法
-// Method2：调用 session.DB(name).C(collection).Find(selector).Apply() 方法
-//          Apply()方法底层实际运行了`findAndModify`命令：
-func (d *Dao) UpsertDoc(collection string, selector interface{}, update interface{}) (*mgo.ChangeInfo, error) {
-	session := d.sessionCopy()
+// UpsertDoc 插入 & 更新文档
+// name 指定集合名；selector 选择条件；update 更新内容
+//
+// UpsertDoc 方法内部采用了两种实现方式
+// 1：调用 session.DB(name).C(collection).Upsert 方法
+// 2：调用 session.DB(name).C(collection).Find(selector).Apply() 方法
+//    Apply()方法底层实际运行了`findAndModify`命令：
+func (d *Dao) UpsertDoc(name string, selector interface{}, update interface{}) (*mgo.ChangeInfo, error) {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
 
 	if selector == nil {
 		return nil, errNull
 	}
-	if m, ok := selector.(bson.M); ok {
+	if m, ok := selector.(bson.M); ok { // selector 为 bson.M
 		if change, ok := update.(mgo.Change); ok {
+			// 支持 mgo.Change
+			// $setOnInsert 设置只在文档创建时需要添加的字段
+			// change := mgo.Change{
+			// 		Update: bson.M{
+			// 			"$set":         update,
+			// 			"$setOnInsert": bson.M{"create_at": Now(), "is_delete": false, "delete_at": ""},
+			// 		},
+			// 		Upsert:    true,
+			// 		ReturnNew: true,
+			// 	}
 			var i interface{}
 			return co.Find(m).Apply(change, &i)
 		}
 		return co.Upsert(m, update)
 	}
-	if id, ok := selector.(bson.ObjectId); ok {
+	if id, ok := selector.(bson.ObjectId); ok { // selector 为 bson.ObjectId
 		if change, ok := update.(mgo.Change); ok {
 			var i interface{}
 			return co.FindId(id).Apply(change, &i)
@@ -122,11 +142,12 @@ func (d *Dao) UpsertDoc(collection string, selector interface{}, update interfac
 	return nil, errUnSupportType
 }
 
-// 删除文档: collection 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型)
-func (d *Dao) RemoveDoc(collection string, selector interface{}) error {
-	session := d.sessionCopy()
+// RemoveDoc 删除文档，物理删除
+// name 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型)
+func (d *Dao) RemoveDoc(name string, selector interface{}) error {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
 
 	if selector == nil {
 		return errNull
@@ -140,11 +161,12 @@ func (d *Dao) RemoveDoc(collection string, selector interface{}) error {
 	return errUnSupportType
 }
 
-// 软删除文档: collection 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型)
-func (d *Dao) SoftRemoveDoc(collection string, selector interface{}) error {
-	session := d.sessionCopy()
+// RemoveDocByMark 软删除文档
+// name 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型)
+func (d *Dao) RemoveDocByMark(name string, selector interface{}) error {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
 
 	if selector == nil {
 		return errNull
@@ -163,38 +185,44 @@ func (d *Dao) SoftRemoveDoc(collection string, selector interface{}) error {
 	return errUnSupportType
 }
 
-// 更新文档: collection 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型); update 更新内容
-func (d *Dao) UpdateDoc(collection string, selector interface{}, update bson.M) error {
-	session := d.sessionCopy()
+// UpdateDoc 更新文档
+// name 集合名；selector 选择条件(selector 存储 bson.ObjectId or bson.M 类型); update 更新内容
+func (d *Dao) UpdateDoc(name string, selector interface{}, update interface{}) error {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
 
-	if selector == nil {
+	if selector == nil || update == nil {
 		return errNull
 	}
-	if _, ok := update["_id"]; ok {
-		delete(update, "_id")
-	}
-	if _, ok := update["create_at"]; ok {
-		delete(update, "create_at")
+
+	docs, ok := update.(bson.M)
+	if ok {
+		if _, ok := docs["_id"]; ok {
+			delete(docs, "_id")
+		}
+		if _, ok := docs["create_at"]; ok {
+			delete(docs, "create_at")
+		}
+		update = docs
 	}
 
 	if m, ok := selector.(bson.M); ok {
-		return co.Update(m, update)
+		return co.Update(m, bson.M{"$set": update})
 	}
 	if id, ok := selector.(bson.ObjectId); ok {
-		return co.UpdateId(id, update)
+		return co.UpdateId(id, bson.M{"$set": update})
 	}
 	return errUnSupportType
 }
 
-// 定义分页查询参数存储对象
+// Page 定义分页查询参数存储对象
 type Page struct {
 	Valid         bool
 	Offset, Limit int
 }
 
-// 检查分页参数是否合法
+// checkValid 检查分页参数是否合法
 func (p *Page) checkValid(offset, limit string) {
 	if offset == "" || limit == "" {
 		p.Valid = false
@@ -221,11 +249,12 @@ func (p *Page) checkValid(offset, limit string) {
 	p.Valid = true
 }
 
-// 查询文档：collection集合名称; query查询条件；page分页条件；sortKeys排序字段。该方法将返回按条件过滤后的 *mgo.Query 结构
-func (d *Dao) Find(collection string, query interface{}, page Page, sortKeys ...string) (*mgo.Query, error) {
-	session := d.sessionCopy()
+// FindWithQuery 查询文档，其结果存入mgo.Query返回
+// name集合名称; query查询条件；page分页条件；sortKeys排序字段。该方法将返回按条件过滤后的 *mgo.Query 结构
+func (d *Dao) FindWithQuery(name string, query interface{}, page Page, sortKeys ...string) (*mgo.Query, error) {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
 
 	if query == nil {
 		return nil, errNull
@@ -243,11 +272,12 @@ func (d *Dao) Find(collection string, query interface{}, page Page, sortKeys ...
 	return q, nil
 }
 
-// 查找文档：collection集合名称; query查询条件; page指定分页参数; sortKeys指定排序字段
-func (d *Dao) FindDoc(collection string, query interface{}, page Page, sortKeys ...string) ([]interface{}, error) {
-	session := d.sessionCopy()
+// FindDoc 查找文档, 其结果存入[]interface返回
+// name集合名称; query查询条件; page指定分页参数; sortKeys指定排序字段
+func (d *Dao) FindDoc(name string, query interface{}, page Page, sortKeys ...string) ([]interface{}, error) {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
 
 	if query == nil {
 		return nil, errNull
@@ -269,11 +299,39 @@ func (d *Dao) FindDoc(collection string, query interface{}, page Page, sortKeys 
 	return results, err
 }
 
-// 查找某个文档：collection集合名称; query指定查询条件(contains _id or an unique_main_key)
-func (d *Dao) FindOne(collection string, query interface{}) (interface{}, error) {
-	session := d.sessionCopy()
+// FindDocToResults 查找文档，其结果写入result(结构体对象的指针的切片)，并返回一个error
+// name集合名称; query查询条件; page指定分页参数; sortKeys指定排序字段
+func (d *Dao) FindDocToResults(name string, results, query interface{}, page Page, sortKeys ...string) error {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
+
+	if reflect.TypeOf(results).Kind() != reflect.Ptr {
+		return fmt.Errorf("results must be a pointer")
+	}
+
+	if query == nil {
+		return errNull
+	}
+	q := co.Find(query)
+
+	if len(sortKeys) == 0 {
+		sortKeys = append(sortKeys, "-create_at")
+	}
+	q = q.Sort(sortKeys...)
+
+	if page.Valid {
+		q = q.Skip(page.Offset).Limit(page.Limit)
+	}
+	return q.All(results)
+}
+
+// FindOneDoc 查找某个文档, interface{}存储的结果为bson.M格式
+// name集合名称; query指定查询条件(contains _id or an unique_main_key)
+func (d *Dao) FindOneDoc(name string, query interface{}) (interface{}, error) {
+	session := d.SessionCopy()
+	defer session.Close()
+	co := session.DB(d.Name).C(name)
 
 	if query == nil {
 		return nil, errNull
@@ -292,6 +350,7 @@ func (d *Dao) FindOne(collection string, query interface{}) (interface{}, error)
 			return nil, mgo.ErrNotFound
 		}
 	}
+
 	if id, ok := query.(bson.ObjectId); ok {
 		q = co.FindId(id)
 	}
@@ -300,11 +359,46 @@ func (d *Dao) FindOne(collection string, query interface{}) (interface{}, error)
 	return result, err
 }
 
-// 聚合管道: collection集合名称; pipes指定管道操作条件
-func (d *Dao) PipeDoc(collection string, pipes []bson.M) ([]interface{}, error) {
-	session := d.sessionCopy()
+// FindOneDocToResult 查找某个文档, 其结果写入result(结构体对象的指针)，并返回一个error
+// name集合名称; query指定查询条件(contains _id or an unique_main_key)
+func (d *Dao) FindOneDocToResult(name string, result, query interface{}) error {
+	session := d.SessionCopy()
 	defer session.Close()
-	co := session.DB(d.Name).C(collection)
+	co := session.DB(d.Name).C(name)
+
+	if reflect.TypeOf(result).Kind() != reflect.Ptr {
+		return fmt.Errorf("results must be a pointer type")
+	}
+
+	if query == nil {
+		return errNull
+	}
+
+	var q *mgo.Query
+
+	if m, ok := query.(bson.M); ok {
+		q = co.Find(m)
+		cnt, err := q.Count()
+		if err != nil {
+			return err
+		}
+		if cnt > 1 {
+			return mgo.ErrNotFound
+		}
+	}
+
+	if id, ok := query.(bson.ObjectId); ok {
+		q = co.FindId(id)
+	}
+	return q.One(result)
+}
+
+// PipeDoc 聚合管道
+// name集合名称; pipes指定管道操作条件
+func (d *Dao) PipeDoc(name string, pipes []bson.M) ([]interface{}, error) {
+	session := d.SessionCopy()
+	defer session.Close()
+	co := session.DB(d.Name).C(name)
 
 	var err error
 	var results []interface{}
@@ -313,9 +407,23 @@ func (d *Dao) PipeDoc(collection string, pipes []bson.M) ([]interface{}, error) 
 	return results, err
 }
 
-// 存储文件：GridFS. name 文件名; writer o.ReadWriter接口; 返回文档 Id 和 error
+// PipeOneDocToResult 聚合管道, 其结果写入result(结构体对象的指针)，并返回一个error
+// name集合名称; pipes指定管道操作条件
+func (d *Dao) PipeOneDocToResult(name string, pipes []bson.M, result interface{}) error {
+	session := d.SessionCopy()
+	defer session.Close()
+	co := session.DB(d.Name).C(name)
+
+	if reflect.TypeOf(result).Kind() != reflect.Ptr {
+		return fmt.Errorf("results must be a pointer type")
+	}
+	return co.Pipe(pipes).One(result)
+}
+
+// CreateGridFs 存储文件 GridFS
+// name 文件名; writer o.ReadWriter接口; 返回文档 Id 和 error
 func (d *Dao) CreateGridFs(name string, data []byte) (bson.ObjectId, error) {
-	session := d.sessionCopy()
+	session := d.SessionCopy()
 	defer session.Close()
 	gfs := session.DB(d.Name).GridFS(d.PrefixFS)
 
@@ -336,9 +444,9 @@ func (d *Dao) CreateGridFs(name string, data []byte) (bson.ObjectId, error) {
 	return id, nil
 }
 
-// 查找文件: 文档id
+// FindGridFs 查找文件，文档id
 func (d *Dao) FindGridFs(id interface{}) ([]byte, error) {
-	session := d.sessionCopy()
+	session := d.SessionCopy()
 	defer session.Close()
 	gfs := session.DB(d.Name).GridFS(d.PrefixFS)
 
@@ -357,7 +465,7 @@ func (d *Dao) FindGridFs(id interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// 解析 mgo.DBRef
+// DBRef 解析mgo.DBRef，其结果写入 m(map[string]interface{})
 func DBRef(field string, t reflect.Type, m map[string]interface{}) error {
 	if value, hit := m[field]; hit {
 		refer, ok := value.(map[string]interface{})
@@ -381,7 +489,7 @@ func DBRef(field string, t reflect.Type, m map[string]interface{}) error {
 	return nil
 }
 
-// 解析 mgo.DBRef.Id (mgo_key: $id)
+// DBRefId 解析 mgo.DBRef.Id (mgo_key: $id)
 func DBRefId(field string, m map[string]interface{}) error {
 	if value, hit := m[field]; hit {
 		refer, ok := value.(map[string]interface{})

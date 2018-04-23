@@ -1,5 +1,5 @@
 /*
- * 说明：Tutorial for Mongodb based on Golang and Mgo
+ * 说明：Tutorial for Mongodb based on Golang and MongoDB
  * 作者：zhe
  * 时间：2018-01-17 22:55
  * 更新：
@@ -20,7 +20,13 @@ func main() {
 	d := dao.NewDao(session)
 	userDao := dao.NewUserDao(d)
 
-	if err := userDao.TestMgoError(); err != nil {
-		fmt.Println(err)
+	// err := userDao.TestFindOneResultJsonMarshal()
+	// if err != nil {
+	// 	fmt.Printf("Error: %v\n", err.Error())
+	// }
+	//
+	err := userDao.TestMgoError()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err.Error())
 	}
 }

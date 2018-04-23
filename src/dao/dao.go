@@ -15,28 +15,28 @@ import (
 )
 
 // 定义MongoDB的配置信息
-type MongoConfig struct {
-	DBName       string // 数据库名称
-	DBAdds       addrs  // 数据库地址
-	DBUsername   string // 数据库账号
-	DBPassword   string // 数据库密码
+type MongoDB struct {
+	Name         string // 数据库名称
+	Adds         addrs  // 数据库地址
+	Username     string // 数据库账号
+	Password     string // 数据库密码
 	EnableAuth   bool   // 是否启用数据库验证
 	RepSetName   string // 副本集(Replica set)名称
 	EnableRepSet bool   // 是否启用Replica Set集群模式
 }
 
 // DBConfig 表示一个MongoDB的全局配置对象
-var DBConfig = &MongoConfig{}
+var DBCfg = &MongoDB{}
 
 // 初始化MongoDB配置信息
 func initMongoConfig() {
-	flag.Var(&DBConfig.DBAdds, "db_addr", "database cluster server address")
-	flag.BoolVar(&DBConfig.EnableAuth, "db_auth", false, "enable database authorization")
-	flag.BoolVar(&DBConfig.EnableRepSet, "db_rs", false, "enable replica set")
-	flag.StringVar(&DBConfig.DBName, "db_name", "mongo", "database name for your app")
-	flag.StringVar(&DBConfig.DBUsername, "username", "mongo", "database username")
-	flag.StringVar(&DBConfig.DBPassword, "password", "mongo", "database password ")
-	flag.StringVar(&DBConfig.RepSetName, "rs", "rs", "replica set name")
+	flag.Var(&DBCfg.Adds, "db_addr", "database cluster server address")
+	flag.BoolVar(&DBCfg.EnableAuth, "db_auth", false, "enable database authorization")
+	flag.BoolVar(&DBCfg.EnableRepSet, "db_rs", false, "enable replica set")
+	flag.StringVar(&DBCfg.Name, "db_name", "mongo", "database name for your app")
+	flag.StringVar(&DBCfg.Username, "username", "mongo", "database username")
+	flag.StringVar(&DBCfg.Password, "password", "mongo", "database password ")
+	flag.StringVar(&DBCfg.RepSetName, "rs", "rs", "replica set name")
 	flag.Parse()
 }
 
@@ -55,21 +55,21 @@ func InitMongo() *mgo.Session {
 	info.Timeout = 30 * time.Second
 
 	// Init database cluster server address
-	info.Database = DBConfig.DBName
-	if len(DBConfig.DBAdds) == 0 {
-		DBConfig.DBAdds = append(DBConfig.DBAdds, "127.0.0.1:27017")
+	info.Database = DBCfg.Name
+	if len(DBCfg.Adds) == 0 {
+		DBCfg.Adds = append(DBCfg.Adds, "127.0.0.1:27017")
 	}
-	info.Addrs = DBConfig.DBAdds
+	info.Addrs = DBCfg.Adds
 
 	// Enable database authorization
-	if DBConfig.EnableAuth {
-		info.Username = DBConfig.DBUsername
-		info.Password = DBConfig.DBPassword
+	if DBCfg.EnableAuth {
+		info.Username = DBCfg.Username
+		info.Password = DBCfg.Password
 	}
 
 	// Enable replica set
-	if DBConfig.EnableRepSet {
-		info.ReplicaSetName = DBConfig.RepSetName
+	if DBCfg.EnableRepSet {
+		info.ReplicaSetName = DBCfg.RepSetName
 	}
 
 	session, err = mgo.DialWithInfo(info)

@@ -8,6 +8,7 @@
 package dao
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"reflect"
@@ -231,7 +232,7 @@ func (d *UserDao) UpdateArrDemo() error {
 // Operators:
 func (d *UserDao) UpdateEmbedArrDocDemo() error {
 	selector := bson.M{"account": "mongo_a"}
-	user, err := d.dao.FindOne(d.ColName, selector)
+	user, err := d.dao.FindOneDoc(d.ColName, selector)
 	if err != nil {
 		return err
 	}
@@ -283,9 +284,9 @@ func (d *UserDao) FindDocDemo() error {
 
 // 查询文档：指定需要的字段
 func (d *UserDao) FindWithSelectDemo() error {
-	session := d.dao.sessionCopy()
+	session := d.dao.SessionCopy()
 	defer session.Close()
-	co := d.dao.getCollection(d.ColName, session)
+	co := d.dao.GetCollection(d.ColName, session)
 
 	var q *mgo.Query
 	query := bson.M{"age": 2}
@@ -410,14 +411,21 @@ func (d *UserDao) GridFsDemo() error {
 	return err
 }
 
-func (d *UserDao) TestMgoError() error {
-	result, err := d.dao.FindOne(d.ColName, bson.ObjectIdHex("5a73c9abc7f41c3744443339"))
+// TestMgoError 测试mgo数据库查询时，返回的错误
+// FindOne 没有匹配到结果时，error 返回 'not found'
+// FindDoc 没有匹配到结果时，
+func (d *UserDao) TestMgoLibError() error {
+	result, err := d.dao.FindOneDoc(d.ColName, bson.ObjectIdHex("5a73c9abc7f41c3744443339"))
 	fmt.Printf("errors: %v\n", err)     // not found
 	fmt.Printf("result: %+v\n", result) // nil
 
-	result, err = d.dao.FindOne(d.ColName, bson.M{"_id": bson.ObjectIdHex("5a73c9abc7f41c3744443339"), "name": "xx"})
+	result, err = d.dao.FindOneDoc(d.ColName, bson.M{"_id": bson.ObjectIdHex("5a73c9abc7f41c3744443339"), "name": "xx"})
 	fmt.Printf("errors: %v\n", err)     // not found
 	fmt.Printf("result: %+v\n", result) // nil
+
+	result, err = d.dao.FindDoc(d.ColName, bson.M{}, Page{})
+	fmt.Printf("errors: %v\n", err)     // nil
+	fmt.Printf("result: %+v\n", result) // [map[xxx][xxx]]
 
 	result, err = d.dao.FindDoc(d.ColName, bson.M{"name": "xxx"}, Page{})
 	fmt.Printf("errors: %v\n", err)     // nil
@@ -426,6 +434,123 @@ func (d *UserDao) TestMgoError() error {
 	result, err = d.dao.FindDoc(d.ColName, bson.M{"_id": "5a73c9abc7f41c3744443339"}, Page{})
 	fmt.Printf("errors: %v\n", err)     // nil
 	fmt.Printf("result: %+v\n", result) // []
+
+	return nil
+}
+
+// TestMgoError 测试mgo数据库查询时，返回的错误
+//
+// Summary:
+// FindId(Or Find(x).One(x) 即结果只有一个) & Update & Delete 时：
+//      正常情况：如果查询条件未匹配到结果，err 都会返回 'not found' & result 返回 'nil'
+// Find(x).All(&slice)时：
+//      正常情况：如果查询条件为匹配到结果，err 都会返回 'nil' & result 返回 '[]'
+func (d *UserDao) TestMgoError() error {
+	session := d.dao.SessionCopy()
+	defer session.Close()
+
+	var i interface{}
+	var err error
+	col := d.dao.GetCollection("users", session)
+
+	err = col.Insert(1)
+	fmt.Printf("errors: %v\n\n", err) // error parsing element 0 of field documents :: caused by :: wrong type
+	// for '0' field, expected object, found 0: 1
+
+	var r = model.User{}
+	err = col.FindId("5ad4030fc7f41c2920eeccd4").One(&r)
+	fmt.Printf("errors: %v\n", err)  // not found
+	fmt.Printf("result: %+v\n\n", i) // nil
+
+	i = nil
+	err = col.FindId(bson.ObjectIdHex("5ad4030fc7f41c2920eeccd4")).One(&i)
+	fmt.Printf("errors: %v\n", err)  // nil
+	fmt.Printf("result: %+v\n\n", i) // map[xxx]xxx
+
+	var s []interface{}
+	err = col.Find(bson.M{"nam": ""}).All(&s)
+	fmt.Printf("errors: %v\n", err)  // nil
+	fmt.Printf("result: %+v\n\n", s) // []
+
+	var ss []interface{}
+	err = col.Find(bson.M{}).Limit(2).All(&ss)
+	fmt.Printf("errors: %v\n", err)   // nil
+	fmt.Printf("result: %+v\n\n", ss) // [map[xxx]xxx]
+
+	err = col.UpdateId("5ad4030fc7f41c2920eeccd4", bson.M{"you": "you"})
+	fmt.Printf("errors: %v\n\n", err) // not found
+
+	return nil
+}
+
+// Response 数据库查询结果
+type Response struct {
+	Total int
+	Data  interface{}
+}
+
+// MarshalJSON
+func MarshalJSON(r Response) ([]byte, error) {
+	kind := reflect.TypeOf(r.Data).Kind()
+
+	if kind == reflect.Map {
+		result := r.Data.(bson.M)
+		do(result)
+		r.Data = result
+	}
+
+	if kind == reflect.Slice {
+		results, ok := r.Data.([]interface{})
+		if ok {
+			for _, v := range results {
+				result := v.(bson.M)
+				do(result)
+			}
+			r.Data = results
+		}
+	}
+	return json.Marshal(r)
+}
+
+func do(m bson.M) {
+	for key, value := range m {
+		if key == "_id" {
+			m["id"] = value
+			delete(m, "_id")
+			break
+		}
+	}
+}
+
+// TestFindOneResultJsonMarshal 数据库查找结果进行Json序列化
+func (d *UserDao) TestFindOneResultJsonMarshal() error {
+	result, err := d.dao.FindOneDoc(d.ColName, bson.M{"account": "mongo_1"})
+	if err != nil {
+		return err
+	}
+
+	resp := Response{Total: 1, Data: result}
+	data, err := MarshalJSON(resp)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("data: %s\n", string(data))
+
+	return err
+}
+
+func (d *UserDao) TestFindAllResultJsonMarshal() error {
+	result, err := d.dao.FindDoc(d.ColName, bson.M{}, Page{})
+	if err != nil {
+		return err
+	}
+
+	resp := Response{Total: len(result), Data: result}
+	data, err := MarshalJSON(resp)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("data: %s\n", string(data))
 
 	return nil
 }
