@@ -20,12 +20,19 @@ func main() {
 	d := dao.NewDao(session)
 	userDao := dao.NewUserDao(d)
 
-	// err := userDao.TestFindOneResultJsonMarshal()
-	// if err != nil {
-	// 	fmt.Printf("Error: %v\n", err.Error())
-	// }
-	//
-	err := userDao.TestMgoError()
+	var err error
+
+	err = userDao.TestFindOneResultJsonMarshal()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err.Error())
+	}
+
+	err = userDao.TestFindAllResultJsonMarshal()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err.Error())
+	}
+
+	err = userDao.FindDocDemo()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err.Error())
 	}

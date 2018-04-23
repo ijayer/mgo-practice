@@ -93,7 +93,7 @@ func (d *UserDao) UpsertDocDemo() error {
 	selector := bson.M{"account": user.Account}
 
 	update := bson.M{}
-	if err := StructToBsonMap(user, &update); err != nil {
+	if err := StructToMap(user, &update); err != nil {
 		return err
 	}
 	delete(update, "create_at")
@@ -267,17 +267,18 @@ func (d *UserDao) FindDocDemo() error {
 	sortKeys := []string{"-age"}
 
 	var err error
-	var results []interface{}
+	var result interface{}
 
 	// 按嵌入文档字段查询
-	condition := bson.M{"address.province": "js"}
-	results, err = d.dao.FindDoc(d.ColName, condition, page, sortKeys...)
+	condition := bson.M{"account": "mongo_0"}
+	result, err = d.dao.FindDoc(d.ColName, condition, page, sortKeys...)
 	if err != nil {
 		return err
 	}
-	if err = BsonMapToJson(results...); err != nil {
-		return err
-	}
+	fmt.Printf("type: %T, data:%+v\n", result, result)
+
+	results := result.([]bson.M)
+	fmt.Println("total:", len(results), "data:", results)
 
 	return nil
 }
@@ -336,7 +337,7 @@ func (d *UserDao) FindEmbedArrDemo() error {
 	if err != nil {
 		return err
 	}
-	BsonMapToJson(results...)
+	BsonMapToJson(results)
 
 	// 更新内嵌数组文档
 	selector := bson.M{
@@ -379,7 +380,7 @@ func (d *UserDao) FuzzySearch(keys ...string) error {
 	if err != nil {
 		return err
 	}
-	BsonMapToJson(results...)
+	BsonMapToJson(results)
 
 	return nil
 }
@@ -394,7 +395,7 @@ func (d *UserDao) PipeSearchDemo() error {
 	if err != nil {
 		return err
 	}
-	BsonMapToJson(results...)
+	BsonMapToJson(results)
 
 	return nil
 }
@@ -483,33 +484,42 @@ func (d *UserDao) TestMgoError() error {
 	return nil
 }
 
-// Response 数据库查询结果
+// Response 数据库查询结果处理, 实现 Marshaler
+//
+// Marshaler is the interface implemented by types that
+// can marshal themselves into valid JSON.
 type Response struct {
-	Total int
-	Data  interface{}
+	Total int         `json:"total"`
+	Data  interface{} `json:"data"`
 }
 
 // MarshalJSON
-func MarshalJSON(r Response) ([]byte, error) {
+func (r Response) MarshalJSON() ([]byte, error) {
 	kind := reflect.TypeOf(r.Data).Kind()
 
 	if kind == reflect.Map {
 		result := r.Data.(bson.M)
 		do(result)
-		r.Data = result
+		r.Data = []bson.M{result}
 	}
 
 	if kind == reflect.Slice {
-		results, ok := r.Data.([]interface{})
+		results, ok := r.Data.([]bson.M)
 		if ok {
 			for _, v := range results {
-				result := v.(bson.M)
-				do(result)
+				do(v)
 			}
 			r.Data = results
 		}
 	}
-	return json.Marshal(r)
+
+	return json.Marshal(&struct {
+		Total int         `json:"total"`
+		Data  interface{} `json:"data"`
+	}{
+		Total: r.Total,
+		Data:  r.Data,
+	})
 }
 
 func do(m bson.M) {
@@ -530,11 +540,11 @@ func (d *UserDao) TestFindOneResultJsonMarshal() error {
 	}
 
 	resp := Response{Total: 1, Data: result}
-	data, err := MarshalJSON(resp)
+	data, err := resp.MarshalJSON()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("data: %s\n", string(data))
+	fmt.Printf("%s\n", string(data))
 
 	return err
 }
@@ -544,13 +554,14 @@ func (d *UserDao) TestFindAllResultJsonMarshal() error {
 	if err != nil {
 		return err
 	}
+	results := result.([]bson.M)
 
-	resp := Response{Total: len(result), Data: result}
-	data, err := MarshalJSON(resp)
+	resp := Response{Total: len(results), Data: result}
+	data, err := resp.MarshalJSON()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("data: %s\n", string(data))
+	fmt.Printf("%s\n", string(data))
 
 	return nil
 }

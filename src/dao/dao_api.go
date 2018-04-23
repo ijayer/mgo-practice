@@ -274,7 +274,7 @@ func (d *Dao) FindWithQuery(name string, query interface{}, page Page, sortKeys 
 
 // FindDoc 查找文档, 其结果存入[]interface返回
 // name集合名称; query查询条件; page指定分页参数; sortKeys指定排序字段
-func (d *Dao) FindDoc(name string, query interface{}, page Page, sortKeys ...string) ([]interface{}, error) {
+func (d *Dao) FindDoc(name string, query interface{}, page Page, sortKeys ...string) (interface{}, error) {
 	session := d.SessionCopy()
 	defer session.Close()
 	co := session.DB(d.Name).C(name)
@@ -290,7 +290,7 @@ func (d *Dao) FindDoc(name string, query interface{}, page Page, sortKeys ...str
 	q = q.Sort(sortKeys...)
 
 	var err error
-	var results []interface{}
+	var results []bson.M
 	if page.Valid {
 		q = q.Skip(page.Offset).Limit(page.Limit)
 	}
@@ -339,7 +339,6 @@ func (d *Dao) FindOneDoc(name string, query interface{}) (interface{}, error) {
 
 	var err error
 	var q *mgo.Query
-	var result interface{}
 	if m, ok := query.(bson.M); ok {
 		q = co.Find(m)
 		cnt, err := q.Count()
@@ -351,6 +350,7 @@ func (d *Dao) FindOneDoc(name string, query interface{}) (interface{}, error) {
 		}
 	}
 
+	var result bson.M
 	if id, ok := query.(bson.ObjectId); ok {
 		q = co.FindId(id)
 	}
@@ -375,7 +375,6 @@ func (d *Dao) FindOneDocToResult(name string, result, query interface{}) error {
 	}
 
 	var q *mgo.Query
-
 	if m, ok := query.(bson.M); ok {
 		q = co.Find(m)
 		cnt, err := q.Count()
@@ -395,13 +394,13 @@ func (d *Dao) FindOneDocToResult(name string, result, query interface{}) error {
 
 // PipeDoc 聚合管道
 // name集合名称; pipes指定管道操作条件
-func (d *Dao) PipeDoc(name string, pipes []bson.M) ([]interface{}, error) {
+func (d *Dao) PipeDoc(name string, pipes []bson.M) (interface{}, error) {
 	session := d.SessionCopy()
 	defer session.Close()
 	co := session.DB(d.Name).C(name)
 
 	var err error
-	var results []interface{}
+	var results []bson.M
 
 	err = co.Pipe(pipes).All(&results)
 	return results, err

@@ -112,16 +112,34 @@ func RandomMath() string {
 	return num
 }
 
-// Transform `struct` to `bson.M`
-func StructToBsonMap(src interface{}, dst *bson.M) error {
-	data, err := json.Marshal(src)
+// StructToBsonMap transform `struct` to `bson.M`
+func StructToMap(obj interface{}, m interface{}) error {
+	data, err := json.Marshal(obj)
 	if err != nil {
 		return err
 	}
-	err = json.Unmarshal(data, dst)
+	return json.Unmarshal(data, m)
+}
+
+// MapToStruct transform bson.M to struct
+// obj 结果写入对象，maps 源数据集合
+func MapToStruct(m interface{}, obj interface{}) error {
+	data, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
+	return json.Unmarshal(data, obj)
+}
+
+// OutputJson 将数据转换为Json格式输出到标准输出
+func OutputJson(data []byte) error {
+	var out bytes.Buffer
+	if err := json.Indent(&out, data, "", "  "); err != nil {
+		return err
+	}
+	out.WriteTo(os.Stdout)
+	fmt.Println()
+
 	return nil
 }
 
@@ -140,18 +158,6 @@ func BsonMapToJson(src ...interface{}) error {
 		}
 	}
 	return err
-}
-
-// OutputJson 将数据转换为Json格式输出到标准输出
-func OutputJson(data []byte) error {
-	var out bytes.Buffer
-	if err := json.Indent(&out, data, "", "  "); err != nil {
-		return err
-	}
-	out.WriteTo(os.Stdout)
-	fmt.Println()
-
-	return nil
 }
 
 const (
